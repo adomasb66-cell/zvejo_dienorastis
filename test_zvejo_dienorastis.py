@@ -1,9 +1,8 @@
 import unittest
 import os
-from zvejo_dienorastis import (
-    BazinisIrasas, ZvejybosIrasas, TrofejinisIrasas,
-    OrasIrasas, Dienorastis, DuomenuBaze
-)
+from models import (
+    BazinisIrasas, ZvejybosIrasas, TrofejinisIrasas, OrasIrasas)
+from database import Dienorastis, DuomenuBaze
 
 
 def sukurti_irasa(**kwargs):
@@ -164,8 +163,14 @@ class TestDuomenuBazeSingleton(unittest.TestCase):
     def tearDown(self):
         # Singleton reset tarp testų
         DuomenuBaze._instance = None
+        import sqlite3
+        import gc
+        gc.collect()
         if os.path.exists("test_singleton.db"):
-            os.remove("test_singleton.db")
+            try:
+                os.remove("test_singleton.db")
+            except PermissionError:
+                pass
 
 
 # ─────────────────────────────────────────────
@@ -176,13 +181,25 @@ class TestDienorastis(unittest.TestCase):
 
     def setUp(self):
         DuomenuBaze._instance = None
+        import gc
+        gc.collect()
+        if os.path.exists("test_dienorastis.db"):
+            try:
+                os.remove("test_dienorastis.db")
+            except PermissionError:
+                pass
         self.db = DuomenuBaze("test_dienorastis.db")
         self.dienorastis = Dienorastis(self.db)
 
     def tearDown(self):
         DuomenuBaze._instance = None
+        import gc
+        gc.collect()
         if os.path.exists("test_dienorastis.db"):
-            os.remove("test_dienorastis.db")
+            try:
+                os.remove("test_dienorastis.db")
+            except PermissionError:
+                pass
 
     def test_prideti_irasa(self):
         irasas = sukurti_irasa()
