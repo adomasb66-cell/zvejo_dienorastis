@@ -108,6 +108,43 @@ class ZvejybosIrasas(BazinisIrasas):
                 f"{self._zuvis_rusys} {self._svoris}kg")
 
 
+class TrofejinisIrasas(ZvejybosIrasas):
+    """Trofėjinis įrašas - paveldi iš ZvejybosIrasas (Polymorphism)"""
+
+    STATUSAI = ["Asmeninis rekordas", "Didžiausia šiais metais", "Varžybų laimėjimas", "Ypatingas laimikis"]
+
+    def __init__(self, data: str, vieta: str, zuvis_rusys: str,
+                 svoris: float, ilgis: float, masalas: str,
+                 oras: OrasIrasas, trofejaus_statusas: str = "",
+                 isleista_atgal: bool = False, vieta_varzbose: str = "",
+                 nuotrauka_path: str = "", pastabos: str = "",
+                 irasas_id: int = None):
+        super().__init__(data, vieta, zuvis_rusys, svoris, ilgis,
+                         masalas, oras, nuotrauka_path, pastabos, irasas_id)
+        self._trofejaus_statusas = trofejaus_statusas
+        self._isleista_atgal = isleista_atgal
+        self._vieta_varzbose = vieta_varzbose
+
+    @property
+    def trofejaus_statusas(self):
+        return self._trofejaus_statusas
+
+    @property
+    def isleista_atgal(self):
+        return self._isleista_atgal
+
+    @property
+    def vieta_varzbose(self):
+        return self._vieta_varzbose
+
+    def santrauka(self) -> str:
+        # Perrašytas metodas - Polymorphism
+        atgal = " (išleista atgal)" if self._isleista_atgal else ""
+        return (f"🏆 {self._data} | {self._vieta} | "
+                f"{self._zuvis_rusys} {self._svoris}kg | "
+                f"{self._trofejaus_statusas}{atgal}")
+
+
 class Dienorastis:
     """Dienoraščio valdiklis - agregacija (saugo ZvejybosIrasas sąrašą)"""
     
@@ -169,22 +206,40 @@ class DuomenuBaze:
                     oras_aprasas TEXT DEFAULT '',
                     nuotrauka_path TEXT DEFAULT '',
                     pastabos TEXT DEFAULT '',
+                    trofejinis INTEGER DEFAULT 0,
+                    trofejaus_statusas TEXT DEFAULT '',
+                    isleista_atgal INTEGER DEFAULT 0,
+                    vieta_varzbose TEXT DEFAULT '',
                     sukurta TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            for col in ["trofejinis INTEGER DEFAULT 0",
+                        "trofejaus_statusas TEXT DEFAULT ''",
+                        "isleista_atgal INTEGER DEFAULT 0",
+                        "vieta_varzbose TEXT DEFAULT ''"]:
+                try:
+                    conn.execute(f"ALTER TABLE irasai ADD COLUMN {col}")
+                except Exception:
+                    pass
     
     def issaugoti(self, irasas: ZvejybosIrasas) -> int:
+        trofejinis = isinstance(irasas, TrofejinisIrasas)
+        trofejaus_statusas = irasas.trofejaus_statusas if trofejinis else ""
+        isleista_atgal = int(irasas.isleista_atgal) if trofejinis else 0
+        vieta_varzbose = irasas.vieta_varzbose if trofejinis else ""
         with sqlite3.connect(self._db_path) as conn:
             cur = conn.execute("""
                 INSERT INTO irasai 
                 (data, vieta, zuvis_rusys, svoris, ilgis, masalas,
-                 temperatura, oras_aprasas, nuotrauka_path, pastabos)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                 temperatura, oras_aprasas, nuotrauka_path, pastabos,
+                 trofejinis, trofejaus_statusas, isleista_atgal, vieta_varzbose)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 irasas.data, irasas.vieta, irasas.zuvis_rusys,
                 irasas.svoris, irasas.ilgis, irasas.masalas,
                 irasas.oras.temperatura, irasas.oras.oras_aprasas,
-                irasas.nuotrauka_path, irasas.pastabos
+                irasas.nuotrauka_path, irasas.pastabos,
+                int(trofejinis), trofejaus_statusas, isleista_atgal, vieta_varzbose
             ))
             return cur.lastrowid
     
@@ -197,13 +252,26 @@ class DuomenuBaze:
         result = []
         for r in rows:
             oras = OrasIrasas(r["temperatura"], r["oras_aprasas"])
-            irasas = ZvejybosIrasas(
-                data=r["data"], vieta=r["vieta"],
-                zuvis_rusys=r["zuvis_rusys"], svoris=r["svoris"],
-                ilgis=r["ilgis"], masalas=r["masalas"],
-                oras=oras, nuotrauka_path=r["nuotrauka_path"],
-                pastabos=r["pastabos"], irasas_id=r["id"]
-            )
+            if r["trofejinis"]:
+                irasas = TrofejinisIrasas(
+                    data=r["data"], vieta=r["vieta"],
+                    zuvis_rusys=r["zuvis_rusys"], svoris=r["svoris"],
+                    ilgis=r["ilgis"], masalas=r["masalas"],
+                    oras=oras,
+                    trofejaus_statusas=r["trofejaus_statusas"],
+                    isleista_atgal=bool(r["isleista_atgal"]),
+                    vieta_varzbose=r["vieta_varzbose"],
+                    nuotrauka_path=r["nuotrauka_path"],
+                    pastabos=r["pastabos"], irasas_id=r["id"]
+                )
+            else:
+                irasas = ZvejybosIrasas(
+                    data=r["data"], vieta=r["vieta"],
+                    zuvis_rusys=r["zuvis_rusys"], svoris=r["svoris"],
+                    ilgis=r["ilgis"], masalas=r["masalas"],
+                    oras=oras, nuotrauka_path=r["nuotrauka_path"],
+                    pastabos=r["pastabos"], irasas_id=r["id"]
+                )
             result.append(irasas)
         return result
     
@@ -592,6 +660,73 @@ class ZvejoDienorastisApp(tk.Tk):
         self.txt_pastabos.grid(row=19, column=0, columnspan=2,
                                sticky="ew", padx=12, pady=(2, 0))
         
+        # Trofėjinis įrašas
+        tk.Frame(parent, bg=COLORS["border"], height=1).grid(
+            row=22, column=0, columnspan=2,
+            sticky="ew", padx=12, pady=(8, 0))
+
+        self.v_trofejinis = tk.BooleanVar()
+        trofej_check = tk.Checkbutton(
+            parent, text="🏆  Trofėjinis laimikis",
+            variable=self.v_trofejinis,
+            bg=COLORS["panel"], fg=COLORS["accent2"],
+            selectcolor=COLORS["entry_bg"],
+            activebackground=COLORS["panel"],
+            activeforeground=COLORS["accent2"],
+            font=("Segoe UI", 10, "bold"),
+            command=self._trofejinis_toggle)
+        trofej_check.grid(row=23, column=0, columnspan=2,
+                          sticky="w", padx=12, pady=(8, 0))
+
+        self.trofej_frame = tk.Frame(parent, bg=COLORS["panel"])
+        self.trofej_frame.grid(row=24, column=0, columnspan=2,
+                               sticky="ew")
+        self.trofej_frame.columnconfigure(0, weight=1)
+        self.trofej_frame.columnconfigure(1, weight=1)
+        self.trofej_frame.grid_remove()
+
+        tk.Label(self.trofej_frame, text="🎖  Statusas",
+                 bg=COLORS["panel"], fg=COLORS["text_dim"],
+                 font=("Segoe UI", 9)).grid(
+            row=0, column=0, columnspan=2,
+            sticky="w", padx=12, pady=(6, 0))
+
+        self.v_trofejaus_statusas = tk.StringVar()
+        ttk.Combobox(self.trofej_frame,
+                     textvariable=self.v_trofejaus_statusas,
+                     values=TrofejinisIrasas.STATUSAI,
+                     state="readonly",
+                     font=("Segoe UI", 10)).grid(
+            row=1, column=0, columnspan=2,
+            sticky="ew", padx=12, pady=(2, 0))
+
+        tk.Label(self.trofej_frame, text="🏅  Vieta varžybose",
+                 bg=COLORS["panel"], fg=COLORS["text_dim"],
+                 font=("Segoe UI", 9)).grid(
+            row=2, column=0, columnspan=2,
+            sticky="w", padx=12, pady=(6, 0))
+
+        self.v_vieta_varzbose = tk.StringVar()
+        tk.Entry(self.trofej_frame, textvariable=self.v_vieta_varzbose,
+                 bg=COLORS["entry_bg"], fg=COLORS["text"],
+                 insertbackground=COLORS["text"],
+                 relief="flat", font=("Segoe UI", 10),
+                 highlightthickness=1,
+                 highlightbackground=COLORS["border"],
+                 highlightcolor=COLORS["accent"]).grid(
+            row=3, column=0, columnspan=2,
+            sticky="ew", padx=12, pady=(2, 0))
+
+        self.v_isleista_atgal = tk.BooleanVar()
+        tk.Checkbutton(self.trofej_frame, text="🐟  Išleista atgal",
+                       variable=self.v_isleista_atgal,
+                       bg=COLORS["panel"], fg=COLORS["text"],
+                       selectcolor=COLORS["entry_bg"],
+                       activebackground=COLORS["panel"],
+                       font=("Segoe UI", 10)).grid(
+            row=4, column=0, columnspan=2,
+            sticky="w", padx=12, pady=(6, 4))
+
         # Mygtukas
         tk.Button(parent, text="💾  Išsaugoti įrašą",
                   bg=COLORS["accent"], fg="white",
@@ -613,6 +748,12 @@ class ZvejoDienorastisApp(tk.Tk):
             row=21, column=0, columnspan=2,
             sticky="ew", padx=12, pady=(0, 12))
     
+    def _trofejinis_toggle(self):
+        if self.v_trofejinis.get():
+            self.trofej_frame.grid()
+        else:
+            self.trofej_frame.grid_remove()
+
     def _pasirinkti_nuotrauka(self):
         path = filedialog.askopenfilename(
             title="Pasirinkite nuotrauką",
@@ -649,14 +790,27 @@ class ZvejoDienorastisApp(tk.Tk):
                 oras_aprasas=self.v_oras.get()
             )
             
-            irasas = ZvejybosIrasas(
-                data=data, vieta=vieta,
-                zuvis_rusys=zuvis, svoris=svoris,
-                ilgis=ilgis, masalas=masalas,
-                oras=oras,
-                nuotrauka_path=self.nuotrauka_path.get(),
-                pastabos=pastabos
-            )
+            if self.v_trofejinis.get():
+                irasas = TrofejinisIrasas(
+                    data=data, vieta=vieta,
+                    zuvis_rusys=zuvis, svoris=svoris,
+                    ilgis=ilgis, masalas=masalas,
+                    oras=oras,
+                    trofejaus_statusas=self.v_trofejaus_statusas.get(),
+                    isleista_atgal=self.v_isleista_atgal.get(),
+                    vieta_varzbose=self.v_vieta_varzbose.get().strip(),
+                    nuotrauka_path=self.nuotrauka_path.get(),
+                    pastabos=pastabos
+                )
+            else:
+                irasas = ZvejybosIrasas(
+                    data=data, vieta=vieta,
+                    zuvis_rusys=zuvis, svoris=svoris,
+                    ilgis=ilgis, masalas=masalas,
+                    oras=oras,
+                    nuotrauka_path=self.nuotrauka_path.get(),
+                    pastabos=pastabos
+                )
             
             self.dienorastis.prideti_irasa(irasas)
             self._atnaujinti_sarasa()
@@ -720,9 +874,10 @@ class ZvejoDienorastisApp(tk.Tk):
         
         irasai = self.dienorastis.gauti_visus()
         for i in irasai:
+            trofejinis = isinstance(i, TrofejinisIrasas)
             self.tree.insert("", "end",
                 values=(
-                    i.data,
+                    ("🏆 " if trofejinis else "") + i.data,
                     i.vieta,
                     i.zuvis_rusys,
                     f"{i.svoris} kg" if i.svoris else "—",
@@ -753,6 +908,11 @@ class ZvejoDienorastisApp(tk.Tk):
         self.v_temp.set("")
         self.nuotrauka_path.set("")
         self.txt_pastabos.delete("1.0", "end")
+        self.v_trofejinis.set(False)
+        self.v_trofejaus_statusas.set("")
+        self.v_isleista_atgal.set(False)
+        self.v_vieta_varzbose.set("")
+        self.trofej_frame.grid_remove()
         self.pasirinktas_irasas = None
 
 
